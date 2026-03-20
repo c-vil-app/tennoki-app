@@ -203,7 +203,7 @@ input[type=file]{display:none}
     <div class="tab" onclick="go('help')">ヘルプ</div>
   </div>
   <div class="offline-banner hide" id="offlineBanner">
-    <span>[OFF] オフライン - ローカルに保存中</span>
+    <span>📴 オフライン — ローカルに保存中</span>
     <span class="upload-badge" id="pendingBadge">0</span>
   </div>
   <div class="genba-bar">
@@ -242,7 +242,7 @@ input[type=file]{display:none}
         <div class="stl">近景（K）</div>
         <div class="ps" id="sK" onclick="document.getElementById('fK').click()">
           <img id="pK" src="" alt="">
-          <div class="sph"><div class="sph-label">近景</div><div class="sph-icon">[CAM]</div><div class="sph-text">タップして撮影</div></div>
+          <div class="sph"><div class="sph-label">近景</div><div class="sph-icon">📷</div><div class="sph-text">タップして撮影</div></div>
           <div class="so"><span>近景</span><span class="sb">K</span></div>
         </div>
       </div>
@@ -250,7 +250,7 @@ input[type=file]{display:none}
         <div class="stl">遠景（E）</div>
         <div class="ps" id="sE" onclick="document.getElementById('fE').click()">
           <img id="pE" src="" alt="">
-          <div class="sph"><div class="sph-label">遠景</div><div class="sph-icon">[CAM]</div><div class="sph-text">タップして撮影</div></div>
+          <div class="sph"><div class="sph-label">遠景</div><div class="sph-icon">📷</div><div class="sph-text">タップして撮影</div></div>
           <div class="so"><span>遠景</span><span class="sb">E</span></div>
         </div>
       </div>
@@ -276,7 +276,7 @@ input[type=file]{display:none}
     <div class="tab" onclick="go('help')">ヘルプ</div>
   </div>
   <div class="offline-banner hide" id="offlineBanner2">
-    <span>[OFF] オフライン中 - <span id="pendingCount2">0</span>件が未送信</span>
+    <span>📴 オフライン中 — <span id="pendingCount2">0</span>件が未送信</span>
     <button class="btn info" style="margin:0;padding:4px 12px;font-size:13px;width:auto" onclick="uploadPending()">今すぐ送信</button>
   </div>
   <div class="genba-bar">
@@ -317,7 +317,7 @@ input[type=file]{display:none}
       <div>
         <div class="stl">近景（K）</div>
         <div class="det-ph-wrap" id="detPhK" onclick="tapPhoto('K')">
-          <div class="det-ph-noph">[CAM]<span>写真なし</span></div>
+          <div class="det-ph-noph">📷<span>写真なし</span></div>
           <div class="det-ph-label">近景 K</div>
           <div class="det-ph-retake" onclick="event.stopPropagation();document.getElementById('dfK').click()">撮り直し</div>
         </div>
@@ -325,7 +325,7 @@ input[type=file]{display:none}
       <div>
         <div class="stl">遠景（E）</div>
         <div class="det-ph-wrap" id="detPhE" onclick="tapPhoto('E')">
-          <div class="det-ph-noph">[CAM]<span>写真なし</span></div>
+          <div class="det-ph-noph">📷<span>写真なし</span></div>
           <div class="det-ph-label">遠景 E</div>
           <div class="det-ph-retake" onclick="event.stopPropagation();document.getElementById('dfE').click()">撮り直し</div>
         </div>
@@ -434,7 +434,7 @@ input[type=file]{display:none}
     <div class="msec">
       <div class="msec-t">基本的な使い方</div>
       <div class="help-item"><div class="help-num">1</div><div class="help-text">起動時に<b>現場名を入力</b>。現場ごとにドライブのフォルダ・CSVが分かれます。</div></div>
-      <div class="help-item"><div class="help-num">2</div><div class="help-text"><b>点名</b>は前回の末尾数字+1が自動入力（例：T.1->T.2）。</div></div>
+      <div class="help-item"><div class="help-num">2</div><div class="help-text"><b>点名</b>は前回の末尾数字+1が自動入力（例：T.1→T.2）。</div></div>
       <div class="help-item"><div class="help-num">3</div><div class="help-text">近景・遠景をタップして撮影。<b>写真は自動で1MB以下に圧縮</b>されます。</div></div>
       <div class="help-item"><div class="help-num">4</div><div class="help-text">「登録」を押すとドライブに保存。<b>圏外ではローカルに保存</b>され電波回復時に自動送信。</div></div>
     </div>
@@ -474,8 +474,7 @@ input[type=file]{display:none}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
-// GASホスト版 - google.script.runを使用
-const GAS_URL = ''; // 不使用
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbzN3xMjvgRTkwWcUfq931EBz2-asT1_mWWBJ-j290EzWKQXnzPEjQVOyPfdt-STMgg/exec';
 const MAX_PH = 1024 * 1024;
 const THUMB_SIZE = 200; // サムネイル幅px
 const IDB_NAME = 'tenkino_v13';
@@ -489,7 +488,7 @@ let isOnline = navigator.onLine;
 let isUploading = false;
 let idb = null;
 
-// IndexedDB --
+// ── IndexedDB ──
 function openIDB() {
   return new Promise((res,rej)=>{
     const req = indexedDB.open(IDB_NAME, IDB_VER);
@@ -507,7 +506,7 @@ function idbGetAll(store){ return new Promise((res,rej)=>{ const tx=idb.transact
 function idbGet(store,key){ return new Promise((res,rej)=>{ const tx=idb.transaction(store,'readonly'); const r=tx.objectStore(store).get(key); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
 function idbDelete(store,key){ return new Promise((res,rej)=>{ const tx=idb.transaction(store,'readwrite'); tx.objectStore(store).delete(key).onsuccess=()=>res(); }); }
 
-// 画像圧縮 --
+// ── 画像圧縮 ──
 function compressImage(dataUrl, maxBytes) {
   return new Promise(resolve=>{
     const img = new Image();
@@ -527,7 +526,7 @@ function compressImage(dataUrl, maxBytes) {
   });
 }
 
-// サムネイル生成 --
+// ── サムネイル生成 ──
 function makeThumbnail(dataUrl, size=THUMB_SIZE) {
   return new Promise(resolve=>{
     const img = new Image();
@@ -541,7 +540,7 @@ function makeThumbnail(dataUrl, size=THUMB_SIZE) {
   });
 }
 
-// GPS取得 --
+// ── GPS取得 ──
 function getGPS() {
   return new Promise(resolve=>{
     if (!navigator.geolocation) { resolve(null); return; }
@@ -553,7 +552,7 @@ function getGPS() {
   });
 }
 
-// 点名インクリメント --
+// ── 点名インクリメント ──
 function incrementTenName(name) {
   if (!name) return '';
   const m = name.match(/^(.*?)(\d+)([^\d]*)$/);
@@ -561,7 +560,7 @@ function incrementTenName(name) {
   return m[1] + (parseInt(m[2])+1) + m[3];
 }
 
-// 現場 --
+// ── 現場 ──
 function openGenbaModal() {
   document.getElementById('genbaInput').value = currentGenba;
   document.getElementById('genbaModal').classList.add('open');
@@ -594,7 +593,7 @@ function updateGenbaDisplay() {
   document.getElementById('genbaDisplay2').textContent=l;
 }
 
-// オンライン状態 --
+// ── オンライン状態 ──
 function updateOnlineStatus() {
   isOnline = navigator.onLine;
   ['offlineBanner','offlineBanner2'].forEach(id=>document.getElementById(id).classList.toggle('hide',isOnline));
@@ -614,25 +613,17 @@ async function updatePendingCount() {
   return n;
 }
 
-// API --
-// GASホスト版API呼び出し（google.script.run使用）
-function gasCall(fnName, params) {
-  return new Promise((resolve, reject) => {
-    google.script.run
-      .withSuccessHandler(result => resolve(typeof result === 'string' ? JSON.parse(result) : result))
-      .withFailureHandler(err => reject(new Error(err.message || String(err))))
-      [fnName](params);
-  });
-}
+// ── API ──
 async function gasGet(params={}) {
-  return gasCall('gasGetFromClient', params);
+  const url=GAS_URL+'?'+new URLSearchParams({...params,_t:Date.now()});
+  return (await fetch(url)).json();
 }
 async function gasPost(body) {
-  return gasCall('gasPostFromClient', body);
+  return (await fetch(GAS_URL,{method:'POST',body:JSON.stringify(body)})).json();
 }
 function setDot(s){ ['sd1','sd2'].forEach(id=>{ const e=document.getElementById(id); if(e) e.className='sync-dot '+s; }); }
 
-// データ読み込み --
+// ── データ読み込み ──
 async function loadData() {
   setDot('syncing');
   try {
@@ -643,7 +634,7 @@ async function loadData() {
       const pendingRecs = pending.map(p=>({...p.record,_pending:true}));
       data = [...pendingRecs, ...(res.records||[])];
       setDot('ok');
-      document.getElementById('connRow').innerHTML='<div class="sync-dot ok" style="position:static;flex-shrink:0"></div><span>接続中 - Googleドライブ同期有効</span>';
+      document.getElementById('connRow').innerHTML='<div class="sync-dot ok" style="position:static;flex-shrink:0"></div><span>接続中 — Googleドライブ同期有効</span>';
     } else {
       data = pending.map(p=>({...p.record,_pending:true}));
       setDot('offline');
@@ -660,7 +651,7 @@ async function loadData() {
   await updatePendingCount();
 }
 
-// 未送信アップロード --
+// ── 未送信アップロード ──
 async function uploadPending() {
   if (!isOnline||isUploading) return;
   const pending = await idbGetAll('pending');
@@ -689,7 +680,7 @@ async function uploadPending() {
   await updatePendingCount();
 }
 
-// 画面遷移 --
+// ── 画面遷移 ──
 function go(t) {
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   const m={reg:'scReg',list:'scList',settings:'scSettings',help:'scHelp'};
@@ -699,7 +690,7 @@ function go(t) {
 }
 function showScreen(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); window.scrollTo(0,0); }
 
-// 写真読み込み --
+// ── 写真読み込み ──
 function hreg(t,inp) {
   const f=inp.files[0]; if(!f)return;
   const r=new FileReader();
@@ -722,7 +713,7 @@ function hdet(t,inp) {
   r.readAsDataURL(f); inp.value='';
 }
 
-// 登録 --
+// ── 登録 ──
 async function register() {
   const name=document.getElementById('rName').value.trim();
   const tenshu=document.getElementById('rTenshu').value;
@@ -781,15 +772,15 @@ async function register() {
         id:res.id, genba:currentGenba, tenName:name, tenshu, kushu, order:'KE',
         timestamp:ts, downloaded:false,
         kFileId:res.kFileId, eFileId:res.eFileId,
-        kUrl:res.kFileId?'https://lh3.googleusercontent.com/d/'+res.kFileId:null,
-        eUrl:res.eFileId?'https://lh3.googleusercontent.com/d/'+res.eFileId:null,
+        kUrl:res.kFileId?`https://lh3.googleusercontent.com/d/${res.kFileId}`:null,
+        eUrl:res.eFileId?`https://lh3.googleusercontent.com/d/${res.eFileId}`:null,
         lat:gps?.lat||null, lng:gps?.lng||null, _pending:false
       };
       setDot('ok'); await updatePendingCount();
       toast('「'+name+'」をドライブに保存しました（計'+data.length+'点）');
     } catch(e) {
       hideProgress(); setDot('offline');
-      toast('送信失敗 - ローカルに保存済み。後で自動送信されます');
+      toast('送信失敗 — ローカルに保存済み。後で自動送信されます');
     }
   }
   btn.disabled=false; btn.textContent='登録';
@@ -805,7 +796,7 @@ function clearReg() {
 function showProgress(msg,pct){ document.getElementById('uploadProgress').style.display='block'; document.getElementById('uploadMsg').textContent=msg; document.getElementById('progressBar').style.width=pct+'%'; }
 function hideProgress(){ document.getElementById('uploadProgress').style.display='none'; document.getElementById('progressBar').style.width='0%'; }
 
-// フィルタ＆一覧 --
+// ── フィルタ＆一覧 ──
 function setFilter(f,el){ curFilter=f; document.querySelectorAll('.fb').forEach(b=>b.classList.remove('active')); el.classList.add('active'); renderList(); }
 function dispVal(v){ return v&&v.trim()?v:'-- なし --'; }
 
@@ -825,22 +816,22 @@ async function renderList() {
   if (!rows.length){body.innerHTML='<div class="empty-state">該当するデータがありません</div>';return;}
 
   // まずHTMLを生成（サムネイルはプレースホルダー）
-  body.innerHTML=rows.map(r=>'
-    <div class="li'+r.downloaded?' dl-done':''+r._pending?' offline-pending':''+'" onclick="showDetailById(\''+r.id+'\')">
-      <div class="li-thumb" id="thumb_'+r.id+'">
-        <div style="width:80px;height:64px;display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--text3)">[CAM]</div>
+  body.innerHTML=rows.map(r=>`
+    <div class="li${r.downloaded?' dl-done':''}${r._pending?' offline-pending':''}" onclick="showDetailById('${r.id}')">
+      <div class="li-thumb" id="thumb_${r.id}">
+        <div style="width:80px;height:64px;display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--text3)">📷</div>
       </div>
       <div class="li-info">
-        <div class="li-name">'+r.tenName+'</div>
-        <div class="li-meta">'+dispVal(r.tenshu)+' / '+dispVal(r.kushu)+' - '+r.timestamp+'</div>
+        <div class="li-name">${r.tenName}</div>
+        <div class="li-meta">${dispVal(r.tenshu)} / ${dispVal(r.kushu)} — ${r.timestamp}</div>
         <div class="li-badges">
-          '+r.downloaded?'<span class="dl-badge">[DL] DL済</span>':''+'
-          '+r._pending?'<span class="pending-badge">[OFF] 未送信</span>':''+'
-          '+!r.kUrl&&!r.eUrl&&!r._pending?'<span class="noph-badge">写真削除済</span>':''+'
+          ${r.downloaded?'<span class="dl-badge">✓ DL済</span>':''}
+          ${r._pending?'<span class="pending-badge">📴 未送信</span>':''}
+          ${!r.kUrl&&!r.eUrl&&!r._pending?'<span class="noph-badge">写真削除済</span>':''}
         </div>
       </div>
-      <span class="li-arrow">></span>
-    </div>').join('');
+      <span class="li-arrow">›</span>
+    </div>`).join('');
 
   // サムネイルを非同期で読み込み
   for (const r of rows) {
@@ -884,17 +875,17 @@ async function loadThumb(r) {
 }
 
 function setThumbImg(wrap, thumb, isPending) {
-  wrap.innerHTML = '<img src="'+thumb+'" alt="" style="width:100%;height:100%;object-fit:cover;display:block">
-    <div class="li-thumb-label">'+isPending?'[OFF]':'E'+'</div>';
+  wrap.innerHTML = `<img src="${thumb}" alt="" style="width:100%;height:100%;object-fit:cover;display:block">
+    <div class="li-thumb-label">${isPending?'📴':'E'}</div>`;
 }
 
-// 詳細 --
+// ── 詳細 ──
 function renderDetPhoto(t, src, isLocal) {
   const wrap = document.getElementById('detPh'+t);
   if (src) {
-    wrap.innerHTML = '<img src="'+src+'" alt=""><div class="det-ph-label">'+t==='K'?'近景 K':'遠景 E'+'</div><div class="det-ph-retake" onclick="event.stopPropagation();document.getElementById(\'df'+t+'\').click()">撮り直し</div>';
+    wrap.innerHTML = `<img src="${src}" alt=""><div class="det-ph-label">${t==='K'?'近景 K':'遠景 E'}</div><div class="det-ph-retake" onclick="event.stopPropagation();document.getElementById('df${t}').click()">撮り直し</div>`;
   } else {
-    wrap.innerHTML = '<div class="det-ph-noph">[CAM]<span>写真なし</span></div><div class="det-ph-label">'+t==='K'?'近景 K':'遠景 E'+'</div><div class="det-ph-retake" onclick="event.stopPropagation();document.getElementById(\'df'+t+'\').click()">撮影</div>';
+    wrap.innerHTML = `<div class="det-ph-noph">📷<span>写真なし</span></div><div class="det-ph-label">${t==='K'?'近景 K':'遠景 E'}</div><div class="det-ph-retake" onclick="event.stopPropagation();document.getElementById('df${t}').click()">撮影</div>`;
   }
 }
 
@@ -934,8 +925,8 @@ function showDetailById(id) {
 function renderMap(lat, lng) {
   const wrap = document.getElementById('mapWrap');
   if (!lat||!lng) { wrap.innerHTML='<div class="map-noloc">位置情報なし</div>'; return; }
-  const url='https://maps.google.com/maps?q='+lat+','+lng+'&z=16&output=embed';
-  wrap.innerHTML='<iframe src="'+url+'" allowfullscreen loading="lazy"></iframe>';
+  const url=`https://maps.google.com/maps?q=${lat},${lng}&z=16&output=embed`;
+  wrap.innerHTML=`<iframe src="${url}" allowfullscreen loading="lazy"></iframe>`;
 }
 
 async function saveDetail() {
@@ -1016,7 +1007,7 @@ function openLB(src,label) {
 }
 function closeLB(){ document.getElementById('lightbox').classList.remove('open'); document.getElementById('lbImg').src=''; }
 
-// ZIP / CSV --
+// ── ZIP / CSV ──
 function buildCSV(rows){
   const h=['"現場名"','"点名"','"点種"','"杭種"','"近景ファイル"','"遠景ファイル"','"登録日時"','"緯度"','"経度"','"DL済"'];
   const b=rows.map(r=>[r.genba||'',r.tenName,r.tenshu||'',r.kushu||'',r.tenName+'K.jpg',r.tenName+'E.jpg',r.timestamp,r.lat||'',r.lng||'',r.downloaded?'済':'未'].map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(','));
@@ -1037,13 +1028,13 @@ async function downloadAll() {
   dlBlob(await zip.generateAsync({type:'blob'}),'点の記_未DLデータ.zip');
   await gasPost({action:'markDL',ids:targets.map(r=>r.id),genba:currentGenba});
   targets.forEach(r=>r.downloaded=true); renderList();
-  toast(targets.length+'件をDL -> DL済にしました');
+  toast(targets.length+'件をDL → DL済にしました');
 }
 function dlBlob(blob,name){ const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=name; a.click(); URL.revokeObjectURL(u); }
 
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),3000); }
 
-// 起動 --
+// ── 起動 ──
 async function init() {
   document.getElementById('loadingMsg').textContent='データベースを初期化中...';
   idb=await openIDB();
