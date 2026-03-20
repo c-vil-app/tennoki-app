@@ -861,6 +861,1104 @@ async function renderList() {
   }
 }
 
+
+async function loadDetPhoto(t, r) {
+  const cacheKey = (t==='K'?'k_':'e_') + r.id;
+  const url = t==='K' ? r.kUrl : r.eUrl;
+  if (!url) { renderDetPhoto(t, null, false); return; }
+  try {
+    const cached = await idbGet('thumbs', cacheKey);
+    if (cached && cached.thumb) { renderDetPhoto(t, cached.thumb, false); return; }
+  } catch(e){}
+  try {
+    const res = await fetch(url);
+    const json = await res.json();
+    if (json.data) {
+      const dataUrl = 'data:'+json.mime+';base64,'+json.data;
+      await idbPut('thumbs',{key:cacheKey, thumb:dataUrl});
+      renderDetPhoto(t, dataUrl, false);
+    }
+  } catch(e){ renderDetPhoto(t, null, false); }
+}
+
+async function loadThumb(r) {
+  const wrap = document.getElementById('thumb_'+r.id);
+  if (!wrap) return;
+  const cacheKey = 'e_'+r.id;
+  // キャッシュ確認
+  try {
+    const cached = await idbGet('thumbs', cacheKey);
+    if (cached && cached.thumb) {
+      setThumbImg(wrap, cached.thumb, r._pending);
+      return;
+    }
+  } catch(e){}
+  // ペンディングは eData から生成
+  if (r._pending && r.eData) {
+    const thumb = await makeThumbnail(r.eData);
+    await idbPut('thumbs',{key:cacheKey, thumb});
+    setThumbImg(wrap, thumb, true);
+    return;
+  }
+  // GASプロキシから取得してキャッシュ
+  if (r.eUrl) {
+    try {
+      const res = await fetch(r.eUrl);
+      const json = await res.json();
+      if (json.data) {
+        const dataUrl = 'data:'+json.mime+';base64,'+json.data;
+        const thumb = await makeThumbnail(dataUrl);
+        await idbPut('thumbs',{key:cacheKey, thumb});
+        setThumbImg(wrap, thumb, false);
+      }
+    } catch(e){}
+  }
+}
+
+function setThumbImg(wrap, thumb, isPending) {
+  wrap.innerHTML = `<img src="${thumb}" alt="" style="width:100%;height:100%;object-fit:cover;display:block">
+    <div class="li-thumb-label">${isPending?'📴':'E'}</div>`;
+}
+
+// ── 詳細 ──
+function renderDetPhoto(t, src, isLocal) {
+  const wrap = document.getElementById('detPh'+t);
+  if (src) {
+    wrap.innerHTML = `<img src="${src}" alt=""><div class="det-ph-label">${t==='K'?'近景 K':'遠景 E'}</div><div class="det-ph-retake" onclick="event.stopPropagation();document.getElementById('df${t}').click()">撮り直し</div>`;
+  } else {
+    wrap.innerHTML = `<div class="det-ph-noph">📷<span>写真なし</span></div><div class="det-ph-label">${t==='K'?'近景 K':'遠景 E'}</div><div class="det-ph-retake" onclick="event.stopPropagation();document.getElementById('df${t}').click()">撮影</div>`;
+  }
+}
+
+function tapPhoto(t) {
+  const r = data.find(d=>d.id===curId); if(!r)return;
+  const src = t==='K' ? (detPh.K||r.kUrl) : (detPh.E||r.eUrl);
+  if (!src) return;
+  openLB(src, t==='K'?'近景（K）':'遠景（E）');
+}
+
+function showDetailById(id) {
+  curId=id; detPh={K:null,E:null};
+  const r=data.find(d=>d.id===id); if(!r)return;
+  document.getElementById('detTitle').textContent=r.tenName;
+  document.getElementById('detGenbaName').textContent=r.genba||'（現場なし）';
+  document.getElementById('detName').value=r.tenName;
+  document.getElementById('detTenshu').value=r.tenshu||'';
+  document.getElementById('detKushu').value=r.kushu||'';
+  document.getElementById('detFileNames').textContent=r.tenName+'K.jpg / '+r.tenName+'E.jpg';
+  document.getElementById('detTs').textContent=r.timestamp;
+  // ステータスバッジ
+  const badge=document.getElementById('detStatusBadge');
+  if (r._pending){ badge.textContent='未送信'; badge.className='status-badge pending'; }
+  else if (r.downloaded){ badge.textContent='DL済'; badge.className='status-badge done'; }
+  else { badge.textContent='未DL'; badge.className='status-badge undl'; }
+  // 写真表示（キャッシュ優先、なければプロキシ取得）
+  if (r._pending && r.kData) renderDetPhoto('K', r.kData, true);
+  else if (r._pending) renderDetPhoto('K', null, false);
+  else loadDetPhoto('K', r);
+  if (r._pending && r.eData) renderDetPhoto('E', r.eData, true);
+  else if (r._pending) renderDetPhoto('E', null, false);
+  else loadDetPhoto('E', r);
+  // マップ
+  renderMap(r.lat, r.lng);
+  showScreen('scDetail');
+}
+
+function renderMap(lat, lng) {
+  const wrap = document.getElementById('mapWrap');
+  if (!lat||!lng) { wrap.innerHTML='<div class="map-noloc">位置情報なし</div>'; return; }
+  const url=`https://maps.google.com/maps?q=${lat},${lng}&z=16&output=embed`;
+  wrap.innerHTML=`<iframe src="${url}" allowfullscreen loading="lazy"></iframe>`;
+}
+
+async function saveDetail() {
+  const name=toHalfWidth(document.getElementById('detName').value.trim());
+  const tenshu=document.getElementById('detTenshu').value;
+  const kushu=document.getElementById('detKushu').value;
+  if (!name){toast('点名を入力してください');return;}
+  const btn=document.getElementById('btnSaveDet');
+  btn.disabled=true; btn.textContent='保存中...';
+  setDot('syncing');
+  try {
+    const r=data.find(d=>d.id===curId);
+    if (r&&r._pending) {
+      r.tenName=name; r.tenshu=tenshu; r.kushu=kushu;
+      if (detPh.K){r.kData=detPh.K; r.kUrl=detPh.K;}
+      if (detPh.E){r.eData=detPh.E; r.eUrl=detPh.E; const th=await makeThumbnail(detPh.E); await idbPut('thumbs',{key:'e_'+r.localId,thumb:th});}
+      await idbPut('pending',{localId:r.localId,record:r});
+      setDot('offline'); toast('ローカルデータを更新しました');
+    } else {
+      const upd={action:'update',id:curId,genba:currentGenba,tenName:name,tenshu,kushu};
+      if (detPh.K) {
+        const rk=await gasPost({action:'uploadPhoto',genba:currentGenba,tenName:name,photoType:'K',photoData:detPh.K});
+        if(!rk.error) upd.kFileId=rk.fileId;
+      }
+      if (detPh.E) {
+        const re=await gasPost({action:'uploadPhoto',genba:currentGenba,tenName:name,photoType:'E',photoData:detPh.E});
+        if(!re.error) upd.eFileId=re.fileId;
+      }
+      const res=await gasPost(upd);
+      if (res.error) throw new Error(res.error);
+      if (r){r.tenName=name;r.tenshu=tenshu;r.kushu=kushu;}
+      if (detPh.E&&res.eFileId){
+        const th=await makeThumbnail(detPh.E); await idbPut('thumbs',{key:'e_'+curId,thumb:th});
+      }
+      setDot('ok'); toast('保存しました');
+    }
+    document.getElementById('detTitle').textContent=name;
+  } catch(e){setDot('err');toast('保存エラー: '+e.message);}
+  finally{btn.disabled=false;btn.textContent='変更';}
+}
+
+async function confirmDelete() {
+  const r=data.find(d=>d.id===curId); if(!r)return;
+  if (!confirm('「'+r.tenName+'」を削除しますか？')) return;
+  setDot('syncing');
+  try {
+    if (r._pending) { await idbDelete('pending',r.localId); }
+    else { const res=await gasPost({action:'delete',id:curId,genba:currentGenba}); if(res.error) throw new Error(res.error); }
+    await idbDelete('thumbs','e_'+r.id).catch(()=>{});
+    data=data.filter(d=>d.id!==curId);
+    document.getElementById('counter').textContent=data.length;
+    setDot('ok'); toast('削除しました'); go('list');
+    await updatePendingCount();
+  } catch(e){setDot('err');toast('削除エラー: '+e.message);}
+}
+
+async function deleteAllDone() {
+  const targets=data.filter(r=>r.downloaded&&!r._pending);
+  if (!targets.length){toast('DL済データがありません');return;}
+  if (!confirm('DL済の'+targets.length+'件をすべて削除しますか？')) return;
+  setDot('syncing');
+  try {
+    for (const r of targets) {
+      await gasPost({action:'delete',id:r.id,genba:currentGenba});
+      await idbDelete('thumbs','e_'+r.id).catch(()=>{});
+    }
+    data=data.filter(r=>!r.downloaded||r._pending);
+    document.getElementById('counter').textContent=data.length;
+    setDot('ok'); toast(targets.length+'件を削除しました'); renderList();
+  } catch(e){setDot('err');toast('エラー: '+e.message);}
+}
+
+async function clearLocalDB() {
+  if (!confirm('ローカルの未送信データをすべて削除しますか？\n（Googleドライブのデータは消えません）')) return;
+  const pending=await idbGetAll('pending');
+  for (const p of pending) await idbDelete('pending',p.localId);
+  await updatePendingCount(); toast('ローカルデータをクリアしました');
+}
+
+function openLB(src,label) {
+  document.getElementById('lbImg').src=src;
+  document.getElementById('lbLabel').textContent=label||'';
+  document.getElementById('lightbox').classList.add('open');
+}
+function closeLB(){ document.getElementById('lightbox').classList.remove('open'); document.getElementById('lbImg').src=''; }
+
+// ── ZIP / CSV ──
+function buildCSV(rows){
+  const h=['"現場名"','"点名"','"点種"','"杭種"','"近景ファイル"','"遠景ファイル"','"登録日時"','"緯度"','"経度"','"DL済"'];
+  const b=rows.map(r=>[r.genba||'',r.tenName,r.tenshu||'',r.kushu||'',r.tenName+'K.jpg',r.tenName+'E.jpg',r.timestamp,r.lat||'',r.lng||'',r.downloaded?'済':'未'].map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(','));
+  return '\uFEFF'+[h.join(','),...b].join('\r\n');
+}
+async function fetchBlob(url){ return (await fetch(url)).blob(); }
+
+async function downloadAll() {
+  const targets=data.filter(r=>!r.downloaded&&!r._pending);
+  if (!targets.length){toast('未DLのデータがありません');return;}
+  toast('ZIPを作成中（'+targets.length+'件）...');
+  const zip=new JSZip();
+  for (const r of targets){
+    if (r.kUrl){try{zip.file(r.tenName+'K.jpg',await fetchBlob(r.kUrl));}catch(e){}}
+    if (r.eUrl){try{zip.file(r.tenName+'E.jpg',await fetchBlob(r.eUrl));}catch(e){}}
+  }
+  zip.file('点の記_記録.csv',buildCSV(targets));
+  dlBlob(await zip.generateAsync({type:'blob'}),'点の記_未DLデータ.zip');
+  await gasPost({action:'markDL',ids:targets.map(r=>r.id),genba:currentGenba});
+  targets.forEach(r=>r.downloaded=true); renderList();
+  toast(targets.length+'件をDL → DL済にしました');
+}
+function dlBlob(blob,name){ const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=name; a.click(); URL.revokeObjectURL(u); }
+
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),3000); }
+
+// ── 起動 ──
+async function init() {
+  document.getElementById('loadingMsg').textContent='データベースを初期化中...';
+  idb=await openIDB();
+  document.getElementById('loadingMsg').textContent='Googleドライブに接続中...';
+  updateOnlineStatus();
+  updateGenbaDisplay();
+  await loadData();
+  if (!currentGenba) setTimeout(()=>openGenbaModal(),500);
+}
+init();
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="点の記">
+<title>点の記</title>
+<style>
+:root{
+  --bg:#f5f5f0;--surface:#fff;--surface2:#f0efea;
+  --border:rgba(0,0,0,0.12);--border2:rgba(0,0,0,0.22);
+  --text:#1a1a18;--text2:#6b6b67;--text3:#a0a09c;
+  --info-bg:#e6f1fb;--info-text:#0c447c;
+  --success-bg:#eaf3de;--success-text:#3b6d11;
+  --danger-bg:#fcebeb;--danger-text:#a32d2d;--danger-border:rgba(163,45,45,0.3);
+  --amber-bg:#faeeda;--amber-text:#854f0b;
+  --r:8px;--rl:12px;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#1a1a18;--surface:#252523;--surface2:#2e2e2c;
+  --border:rgba(255,255,255,0.1);--border2:rgba(255,255,255,0.2);
+  --text:#f0efe8;--text2:#9a9a94;--text3:#5a5a56;
+  --info-bg:#0c2f4a;--info-text:#85b7eb;
+  --success-bg:#173404;--success-text:#c0dd97;
+  --danger-bg:#3a1a1a;--danger-text:#f09595;--danger-border:rgba(240,149,149,0.3);
+  --amber-bg:#412402;--amber-text:#fac775;
+}}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,'Hiragino Sans','Yu Gothic UI',sans-serif;background:var(--bg);min-height:100vh;color:var(--text)}
+.screen{display:none;padding-bottom:3rem}
+.screen.active{display:block}
+.topbar{display:flex;align-items:center;gap:10px;padding:14px 16px 10px;background:var(--surface);border-bottom:0.5px solid var(--border);position:sticky;top:0;z-index:10}
+.topbar-title{font-size:18px;font-weight:600;flex:1}
+.sync-dot{width:9px;height:9px;border-radius:50%;background:var(--text3);flex-shrink:0;transition:background .3s}
+.sync-dot.syncing{background:#f59e0b;animation:pulse .8s infinite}
+.sync-dot.ok{background:var(--success-text)}
+.sync-dot.err{background:var(--danger-text)}
+.sync-dot.offline{background:var(--amber-text)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.back-btn{background:none;border:none;font-size:24px;cursor:pointer;color:var(--text2);padding:0 4px;line-height:1}
+.tab-bar{display:flex;border-bottom:0.5px solid var(--border);background:var(--surface);position:sticky;top:53px;z-index:9}
+.tab{flex:1;padding:10px 4px;font-size:12px;font-weight:500;text-align:center;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
+.tab.active{color:var(--text);border-bottom:2px solid var(--text)}
+.body-pad{padding:16px}
+.fl{font-size:14px;color:var(--text2);display:block;margin-bottom:6px;margin-top:16px}
+.fl:first-child{margin-top:0}
+input[type=text],select{width:100%;font-size:16px;padding:10px 12px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--surface);color:var(--text);font-family:inherit;appearance:none;-webkit-appearance:none;outline:none}
+input[type=text]:focus,select:focus{border-color:var(--info-text);box-shadow:0 0 0 3px rgba(55,138,221,.15)}
+select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:36px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.btn{width:100%;padding:13px;border-radius:var(--r);border:0.5px solid var(--border2);background:transparent;color:var(--text);font-size:15px;cursor:pointer;font-family:inherit;margin-top:10px;transition:background .15s,opacity .15s;-webkit-appearance:none}
+.btn:active{background:var(--surface2)}
+.btn.primary{background:var(--text);color:var(--surface);border-color:var(--text)}
+.btn.primary:active{opacity:.8}
+.btn.success{background:var(--success-bg);color:var(--success-text);border-color:transparent}
+.btn.danger{color:var(--danger-text);border-color:var(--danger-border)}
+.btn.danger-solid{background:var(--danger-text);color:#fff;border-color:var(--danger-text)}
+.btn.danger:active,.btn.danger-solid:active{opacity:.8}
+.btn.amber{background:var(--amber-bg);color:var(--amber-text);border-color:transparent}
+.btn.info{background:var(--info-bg);color:var(--info-text);border-color:transparent}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn-row{display:flex;gap:8px;margin-top:12px}
+.btn-row .btn{margin-top:0}
+/* オフラインバナー */
+.offline-banner{background:var(--amber-bg);color:var(--amber-text);font-size:13px;padding:8px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.offline-banner.hide{display:none}
+.upload-badge{background:var(--amber-text);color:#fff;border-radius:12px;font-size:12px;font-weight:700;padding:1px 8px;min-width:22px;text-align:center}
+/* 現場バー */
+.genba-bar{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--info-bg);border-bottom:0.5px solid var(--border);margin-top:8px}
+.genba-label{font-size:13px;color:var(--info-text);white-space:nowrap}
+.genba-name{font-size:15px;font-weight:600;color:var(--info-text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.genba-change{font-size:12px;color:var(--info-text);text-decoration:underline;cursor:pointer;white-space:nowrap}
+/* カウンター */
+.cr{display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border-radius:var(--r);padding:12px 14px;margin-bottom:14px}
+.cr .cl{font-size:15px;color:var(--text2)}
+.cr .cn{font-size:24px;font-weight:600}
+/* 写真枠 */
+.pg{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}
+.ps{border:0.5px solid var(--border);border-radius:var(--r);overflow:hidden;aspect-ratio:4/3;position:relative;background:var(--surface2);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+.ps img{width:100%;height:100%;object-fit:cover;display:none}
+.ps.hp img{display:block}
+.ps.hp .so{display:flex}
+.so{display:none;position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.6);padding:6px 10px;font-size:16px;color:#fff;align-items:center;justify-content:space-between}
+.sb{font-size:14px;font-weight:700;background:var(--info-bg);color:var(--info-text);border-radius:4px;padding:3px 10px}
+.sph{display:flex;flex-direction:column;align-items:center;gap:4px;pointer-events:none}
+.sph-label{font-size:34px;font-weight:700;color:var(--text2);letter-spacing:.05em;line-height:1.1}
+.sph-icon{font-size:28px;line-height:1}
+.sph-text{font-size:13px;color:var(--text2);font-weight:500}
+.stl{font-size:14px;color:var(--text2);margin-bottom:6px;font-weight:500}
+/* 進捗 */
+.progress-wrap{background:var(--border);border-radius:3px;height:6px;overflow:hidden;margin-top:8px}
+.progress-bar{height:6px;background:var(--info-text);border-radius:3px;width:0%;transition:width .3s}
+/* 一覧 */
+.li{display:flex;align-items:center;gap:0;padding:0;background:var(--surface);border-bottom:0.5px solid var(--border);cursor:pointer;transition:background .1s;overflow:hidden}
+.li:active{background:var(--surface2)}
+.li.dl-done{background:var(--success-bg)}
+.li.offline-pending{border-left:3px solid var(--amber-text)}
+/* 遠景サムネイル（一覧） */
+.li-thumb{width:80px;height:64px;flex-shrink:0;position:relative;overflow:hidden;background:var(--surface2)}
+.li-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.li-thumb-ph{width:80px;height:64px;flex-shrink:0;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--text3)}
+.li-thumb-label{position:absolute;bottom:2px;left:3px;font-size:10px;font-weight:700;color:#fff;background:rgba(0,0,0,.5);padding:1px 5px;border-radius:3px}
+.li-info{flex:1;min-width:0;padding:10px 12px}
+.li-name{font-size:16px;font-weight:500}
+.li-meta{font-size:12px;color:var(--text2);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.li-badges{margin-top:4px;display:flex;gap:4px;flex-wrap:wrap}
+.dl-badge{font-size:10px;font-weight:600;background:var(--success-bg);color:var(--success-text);border-radius:4px;padding:2px 7px;white-space:nowrap}
+.noph-badge{font-size:10px;font-weight:600;background:var(--amber-bg);color:var(--amber-text);border-radius:4px;padding:2px 7px;white-space:nowrap}
+.pending-badge{font-size:10px;font-weight:600;background:var(--amber-bg);color:var(--amber-text);border-radius:4px;padding:2px 7px;white-space:nowrap}
+.li-arrow{font-size:20px;color:var(--text3);padding:0 12px;align-self:center}
+.filter-bar{display:flex;gap:6px;padding:10px 16px 6px;overflow-x:auto;background:var(--surface);border-bottom:0.5px solid var(--border)}
+.filter-bar::-webkit-scrollbar{display:none}
+.fb{padding:6px 16px;border-radius:20px;font-size:13px;font-weight:500;border:0.5px solid var(--border2);background:transparent;color:var(--text2);cursor:pointer;white-space:nowrap;font-family:inherit}
+.fb.active{background:var(--text);color:var(--surface);border-color:var(--text)}
+.empty-state{text-align:center;padding:56px 16px;color:var(--text2);font-size:15px;line-height:1.8}
+/* 詳細・編集 */
+.det-genba-bar{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--info-bg);border-bottom:0.5px solid var(--border)}
+.det-photos{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0 12px}
+.det-ph-wrap{position:relative;border-radius:var(--r);overflow:hidden;aspect-ratio:4/3;background:var(--surface2);cursor:pointer}
+.det-ph-wrap img{width:100%;height:100%;object-fit:cover;display:block}
+.det-ph-label{position:absolute;top:6px;left:6px;font-size:11px;font-weight:700;background:rgba(0,0,0,.55);color:#fff;padding:2px 8px;border-radius:4px}
+.det-ph-retake{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.6);color:#fff;font-size:12px;text-align:center;padding:5px;cursor:pointer}
+.det-ph-noph{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:4px;color:var(--text2);font-size:12px}
+/* ステータスバッジ */
+.status-badge{display:inline-block;font-size:12px;font-weight:700;padding:3px 12px;border-radius:20px;color:#fff;white-space:nowrap}
+.status-badge.done{background:#2d6a2d}
+.status-badge.undl{background:#0c447c}
+.status-badge.pending{background:#854f0b}
+/* 詳細フィールド */
+.det-field{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:0.5px solid var(--border);font-size:15px;gap:8px}
+.det-field:last-child{border-bottom:none}
+.dfl{color:var(--text2);flex-shrink:0;min-width:70px;font-size:14px}
+.dfv{color:var(--text);font-weight:500;text-align:right;word-break:break-all;font-size:14px}
+.det-name-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:0.5px solid var(--border);gap:10px}
+.det-name-input{font-size:18px;font-weight:600;flex:1;padding:6px 8px}
+.det-row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:11px 0;border-bottom:0.5px solid var(--border)}
+.det-row2 .det-sub-label{font-size:12px;color:var(--text2);margin-bottom:4px}
+.det-row2 select{font-size:14px;padding:7px 10px;padding-right:28px;background-position:right 8px center}
+/* マップ */
+.map-wrap{border-radius:var(--r);overflow:hidden;height:180px;background:var(--surface2);margin:10px 0;position:relative}
+.map-wrap iframe{width:100%;height:100%;border:none;display:block}
+.map-noloc{display:flex;align-items:center;justify-content:center;height:100%;font-size:13px;color:var(--text2)}
+/* モーダル */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.open{display:flex}
+.modal{background:var(--surface);border-radius:var(--rl);padding:20px;width:100%;max-width:400px}
+.modal-title{font-size:17px;font-weight:600;margin-bottom:14px}
+/* 設定 */
+.msec{background:var(--surface);border-radius:var(--rl);border:0.5px solid var(--border);padding:16px;margin-bottom:14px}
+.msec-t{font-size:15px;font-weight:500;margin-bottom:10px}
+.conn-row{display:flex;align-items:center;gap:8px;font-size:14px;padding:10px 14px;background:var(--surface2);border-radius:var(--r);margin-bottom:12px}
+/* ヘルプ */
+.help-item{display:flex;gap:10px;margin-bottom:12px;align-items:flex-start}
+.help-num{width:24px;height:24px;border-radius:50%;background:var(--info-bg);color:var(--info-text);font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.help-text{font-size:14px;color:var(--text);line-height:1.7}
+.help-text b{font-weight:600}
+/* ライトボックス */
+.lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:9999;align-items:center;justify-content:center;flex-direction:column;gap:12px}
+.lightbox.open{display:flex}
+.lightbox img{max-width:96vw;max-height:82vh;object-fit:contain;border-radius:6px}
+.lb-close{position:absolute;top:16px;right:20px;font-size:32px;color:#fff;cursor:pointer;line-height:1;background:none;border:none}
+.lb-label{font-size:14px;color:rgba(255,255,255,.7)}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1a18;color:#f0efe8;padding:10px 22px;border-radius:var(--r);font-size:14px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:9998;white-space:nowrap;max-width:90vw;text-align:center}
+.toast.show{opacity:1}
+.loading-overlay{position:fixed;inset:0;background:var(--bg);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+.loading-overlay.hide{display:none}
+.spinner{width:36px;height:36px;border:3px solid var(--border2);border-top-color:var(--info-text);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+input[type=file]{display:none}
+</style>
+</head>
+<body>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div style="font-size:15px;color:var(--text2)" id="loadingMsg">起動中...</div>
+</div>
+
+<!-- 現場選択モーダル -->
+<div class="modal-overlay" id="genbaModal">
+  <div class="modal">
+    <div class="modal-title">現場を選択 / 入力</div>
+    <label class="fl" style="margin-top:0">現場名</label>
+    <input type="text" id="genbaInput" placeholder="例: ○○工事、△△測量">
+    <div style="margin-top:10px;font-size:13px;color:var(--text2);margin-bottom:6px">または既存の現場から選択</div>
+    <select id="genbaSelect"><option value="">（現場なし）</option></select>
+    <div class="btn-row" style="margin-top:14px">
+      <button class="btn" onclick="closeGenbaModal()">キャンセル</button>
+      <button class="btn primary" onclick="applyGenba()">決定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 撮影・登録 -->
+<div id="scReg" class="screen active">
+  <div class="topbar"><span class="topbar-title">点の記</span><div class="sync-dot" id="sd1"></div></div>
+  <div class="tab-bar">
+    <div class="tab active" onclick="go('reg')">撮影・登録</div>
+    <div class="tab" onclick="go('list')">一覧</div>
+    <div class="tab" onclick="go('settings')">設定</div>
+    <div class="tab" onclick="go('help')">ヘルプ</div>
+  </div>
+  <div class="offline-banner hide" id="offlineBanner">
+    <span>📴 オフライン — ローカルに保存中</span>
+    <span class="upload-badge" id="pendingBadge">0</span>
+  </div>
+  <div class="genba-bar">
+    <span class="genba-label">現場：</span>
+    <span class="genba-name" id="genbaDisplay">（現場なし）</span>
+    <span class="genba-change" onclick="openGenbaModal()">変更</span>
+  </div>
+  <div class="body-pad">
+    <div class="cr"><span class="cl">登録済み点数</span><span class="cn" id="counter">–</span></div>
+    <label class="fl">点名</label>
+    <input type="text" id="rName" placeholder="例: T.1, BM-3">
+    <div style="margin-top:20px">
+      <div class="row2">
+        <div>
+          <label class="fl" style="margin-top:0">点種</label>
+          <select id="rTenshu">
+            <option value="">-- なし --</option>
+            <option>1級基準点</option><option>2級基準点</option><option>3級基準点</option><option>4級基準点</option>
+            <option>電子基準点</option><option>水準点</option><option>用地境界点</option><option>用地幅杭点</option>
+            <option>隣接既知点</option><option>境界点</option><option>引照点</option>
+          </select>
+        </div>
+        <div>
+          <label class="fl" style="margin-top:0">杭種</label>
+          <select id="rKushu">
+            <option value="">-- なし --</option>
+            <option>コンクリート杭</option><option>金属鋲</option><option>金属標</option><option>木杭</option>
+            <option>石杭</option><option>プラスチック杭</option><option>アルミプレート</option>
+            <option>刻印</option><option>ペンキ</option><option>マンホール</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="pg" style="margin-top:14px">
+      <div>
+        <div class="stl">近景（K）</div>
+        <div class="ps" id="sK" onclick="document.getElementById('fK').click()">
+          <img id="pK" src="" alt="">
+          <div class="sph"><div class="sph-label">近景</div><div class="sph-icon">📷</div><div class="sph-text">タップして撮影</div></div>
+          <div class="so"><span>近景</span><span class="sb">K</span></div>
+        </div>
+      </div>
+      <div>
+        <div class="stl">遠景（E）</div>
+        <div class="ps" id="sE" onclick="document.getElementById('fE').click()">
+          <img id="pE" src="" alt="">
+          <div class="sph"><div class="sph-label">遠景</div><div class="sph-icon">📷</div><div class="sph-text">タップして撮影</div></div>
+          <div class="so"><span>遠景</span><span class="sb">E</span></div>
+        </div>
+      </div>
+    </div>
+    <div id="uploadProgress" style="display:none;margin-top:12px">
+      <div style="font-size:13px;color:var(--text2);margin-bottom:4px" id="uploadMsg">アップロード中...</div>
+      <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn" onclick="clearReg()">クリア</button>
+      <button class="btn primary" id="btnReg" onclick="register()">登録</button>
+    </div>
+  </div>
+</div>
+
+<!-- 一覧 -->
+<div id="scList" class="screen">
+  <div class="topbar"><span class="topbar-title">点の記</span><div class="sync-dot" id="sd2"></div></div>
+  <div class="tab-bar">
+    <div class="tab" onclick="go('reg')">撮影・登録</div>
+    <div class="tab active" onclick="go('list')">一覧</div>
+    <div class="tab" onclick="go('settings')">設定</div>
+    <div class="tab" onclick="go('help')">ヘルプ</div>
+  </div>
+  <div class="offline-banner hide" id="offlineBanner2">
+    <span>📴 オフライン中 — <span id="pendingCount2">0</span>件が未送信</span>
+    <button class="btn info" style="margin:0;padding:4px 12px;font-size:13px;width:auto" onclick="uploadPending()">今すぐ送信</button>
+  </div>
+  <div class="genba-bar">
+    <span class="genba-label">現場：</span>
+    <span class="genba-name" id="genbaDisplay2">（現場なし）</span>
+    <span class="genba-change" onclick="openGenbaModal()">変更</span>
+  </div>
+  <div class="filter-bar">
+    <button class="fb active" onclick="setFilter('all',this)">すべて</button>
+    <button class="fb" onclick="setFilter('undl',this)">未DL</button>
+    <button class="fb" onclick="setFilter('done',this)">DL済</button>
+    <button class="fb" onclick="setFilter('pending',this)">未送信</button>
+    <button class="fb" onclick="setFilter('noph',this)">写真なし</button>
+  </div>
+  <div id="listBody"></div>
+  <div class="body-pad">
+    <div class="btn-row">
+      <button class="btn" id="btnDLAll" onclick="downloadAll()" disabled>未DLをまとめてDL</button>
+      <button class="btn amber" id="btnDelDone" onclick="deleteAllDone()" disabled>DL済を全削除</button>
+    </div>
+  </div>
+</div>
+
+<!-- 詳細・編集 -->
+<div id="scDetail" class="screen">
+  <div class="topbar">
+    <button class="back-btn" onclick="go('list')">‹</button>
+    <span class="topbar-title" id="detTitle">詳細</span>
+  </div>
+  <!-- 現場バー -->
+  <div class="det-genba-bar">
+    <span class="genba-label">現場：</span>
+    <span class="genba-name" id="detGenbaName">–</span>
+  </div>
+  <div class="body-pad">
+    <!-- 写真 -->
+    <div class="det-photos">
+      <div>
+        <div class="stl">近景（K）</div>
+        <div class="det-ph-wrap" id="detPhK" onclick="tapPhoto('K')">
+          <div class="det-ph-noph">📷<span>写真なし</span></div>
+          <div class="det-ph-label">近景 K</div>
+          <div class="det-ph-retake" onclick="event.stopPropagation();document.getElementById('dfK').click()">撮り直し</div>
+        </div>
+      </div>
+      <div>
+        <div class="stl">遠景（E）</div>
+        <div class="det-ph-wrap" id="detPhE" onclick="tapPhoto('E')">
+          <div class="det-ph-noph">📷<span>写真なし</span></div>
+          <div class="det-ph-label">遠景 E</div>
+          <div class="det-ph-retake" onclick="event.stopPropagation();document.getElementById('dfE').click()">撮り直し</div>
+        </div>
+      </div>
+    </div>
+    <!-- マップ -->
+    <div class="map-wrap" id="mapWrap">
+      <div class="map-noloc">位置情報なし</div>
+    </div>
+    <!-- 点名＋ステータス -->
+    <div class="det-name-row">
+      <input type="text" id="detName" class="det-name-input" placeholder="点名">
+      <span class="status-badge undl" id="detStatusBadge">未DL</span>
+    </div>
+    <!-- 点種・杭種（1行） -->
+    <div class="det-row2">
+      <div>
+        <div class="det-sub-label">点種</div>
+        <select id="detTenshu">
+          <option value="">-- なし --</option>
+          <option>1級基準点</option><option>2級基準点</option><option>3級基準点</option><option>4級基準点</option>
+          <option>電子基準点</option><option>水準点</option><option>用地境界点</option><option>用地幅杭点</option>
+          <option>隣接既知点</option><option>境界点</option><option>引照点</option>
+        </select>
+      </div>
+      <div>
+        <div class="det-sub-label">杭種</div>
+        <select id="detKushu">
+          <option value="">-- なし --</option>
+          <option>コンクリート杭</option><option>金属鋲</option><option>金属標</option><option>木杭</option>
+          <option>石杭</option><option>プラスチック杭</option><option>アルミプレート</option>
+          <option>刻印</option><option>ペンキ</option><option>マンホール</option>
+        </select>
+      </div>
+    </div>
+    <!-- ファイル名（1行） -->
+    <div class="det-field">
+      <span class="dfl">ファイル</span>
+      <span class="dfv" id="detFileNames">–</span>
+    </div>
+    <!-- 登録日時 -->
+    <div class="det-field">
+      <span class="dfl">登録日時</span>
+      <span class="dfv" id="detTs">–</span>
+    </div>
+    <!-- ボタン -->
+    <div class="btn-row" style="margin-top:18px">
+      <button class="btn" onclick="go('list')">キャンセル</button>
+      <button class="btn primary" id="btnSaveDet" onclick="saveDetail()">変更</button>
+      <button class="btn danger-solid" onclick="confirmDelete()">削除</button>
+    </div>
+  </div>
+</div>
+
+<!-- 設定 -->
+<div id="scSettings" class="screen">
+  <div class="topbar"><span class="topbar-title">点の記</span></div>
+  <div class="tab-bar">
+    <div class="tab" onclick="go('reg')">撮影・登録</div>
+    <div class="tab" onclick="go('list')">一覧</div>
+    <div class="tab active" onclick="go('settings')">設定</div>
+    <div class="tab" onclick="go('help')">ヘルプ</div>
+  </div>
+  <div class="body-pad">
+    <div class="msec">
+      <div class="msec-t">接続状態</div>
+      <div class="conn-row" id="connRow">
+        <div class="sync-dot syncing" style="position:static;flex-shrink:0"></div>
+        <span>確認中...</span>
+      </div>
+      <div style="font-size:14px;color:var(--text2);margin-top:8px">未送信データ：<span id="pendingCountSettings" style="font-weight:600">0</span>件</div>
+      <button class="btn info" style="margin-top:10px" onclick="uploadPending()">未送信をまとめてアップロード</button>
+    </div>
+    <div class="msec">
+      <div class="msec-t">現場管理</div>
+      <button class="btn" onclick="openGenbaModal()">現場を変更</button>
+    </div>
+    <div class="msec">
+      <div class="msec-t">データ管理</div>
+      <button class="btn" onclick="downloadAll()">未DLをまとめてDL（ZIP＋CSV）</button>
+      <button class="btn amber" style="margin-top:8px" onclick="deleteAllDone()">DL済データを全削除</button>
+      <button class="btn danger" style="margin-top:8px" onclick="clearLocalDB()">ローカルデータをクリア</button>
+    </div>
+    <div class="msec">
+      <div class="msec-t">このアプリについて</div>
+      <p style="font-size:14px;color:var(--text2);line-height:1.8">
+        点の記 撮影アプリ v13<br>
+        保存先：Googleドライブ（15GB無料）<br>
+        オフライン対応・電波回復時に自動アップロード<br>
+        写真は1MB以下に自動圧縮・IndexedDBキャッシュ
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ヘルプ -->
+<div id="scHelp" class="screen">
+  <div class="topbar"><span class="topbar-title">点の記</span></div>
+  <div class="tab-bar">
+    <div class="tab" onclick="go('reg')">撮影・登録</div>
+    <div class="tab" onclick="go('list')">一覧</div>
+    <div class="tab" onclick="go('settings')">設定</div>
+    <div class="tab active" onclick="go('help')">ヘルプ</div>
+  </div>
+  <div class="body-pad">
+    <div class="msec">
+      <div class="msec-t">基本的な使い方</div>
+      <div class="help-item"><div class="help-num">1</div><div class="help-text">起動時に<b>現場名を入力</b>。現場ごとにドライブのフォルダ・CSVが分かれます。</div></div>
+      <div class="help-item"><div class="help-num">2</div><div class="help-text"><b>点名</b>は前回の末尾数字+1が自動入力（例：T.1→T.2）。</div></div>
+      <div class="help-item"><div class="help-num">3</div><div class="help-text">近景・遠景をタップして撮影。<b>写真は自動で1MB以下に圧縮</b>されます。</div></div>
+      <div class="help-item"><div class="help-num">4</div><div class="help-text">「登録」を押すとドライブに保存。<b>圏外ではローカルに保存</b>され電波回復時に自動送信。</div></div>
+    </div>
+    <div class="msec">
+      <div class="msec-t">オフライン機能</div>
+      <div class="help-item"><div class="help-num">1</div><div class="help-text">圏外でも登録可能。オレンジのバナーが表示されローカルに保存されます。</div></div>
+      <div class="help-item"><div class="help-num">2</div><div class="help-text">電波回復時に<b>自動でバックグラウンド送信</b>が開始されます。</div></div>
+      <div class="help-item"><div class="help-num">3</div><div class="help-text">一覧の「未送信」フィルタでローカル保存中のデータを確認できます。</div></div>
+    </div>
+    <div class="msec">
+      <div class="msec-t">写真の表示・共有</div>
+      <div class="help-item"><div class="help-num">1</div><div class="help-text">一覧には<b>遠景（E）のサムネイル</b>を表示。初回だけドライブから取得し端末にキャッシュします。</div></div>
+      <div class="help-item"><div class="help-num">2</div><div class="help-text">詳細画面で写真をタップすると<b>大きく表示</b>できます。</div></div>
+      <div class="help-item"><div class="help-num">3</div><div class="help-text">他のユーザーも同じ写真を閲覧できます（初回のみ通信が発生）。</div></div>
+    </div>
+    <div class="msec">
+      <div class="msec-t">通信量の目安</div>
+      <div class="help-item"><div class="help-num">!</div><div class="help-text">写真1枚≒1MB。100点/日のアップロードは<b>約200MB</b>。</div></div>
+      <div class="help-item"><div class="help-num">!</div><div class="help-text">サムネイルは端末にキャッシュされるため<b>2回目以降の読み込みは通信ゼロ</b>。</div></div>
+      <div class="help-item"><div class="help-num">!</div><div class="help-text">現場ではオフライン登録し<b>Wi-Fiでまとめてアップロード</b>すると通信費を大幅節約できます。</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ライトボックス -->
+<div id="lightbox" class="lightbox" onclick="closeLB()">
+  <button class="lb-close">✕</button>
+  <img id="lbImg" src="" alt="">
+  <div class="lb-label" id="lbLabel"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<input type="file" id="fK" accept="image/*" capture="environment" onchange="hreg('K',this)">
+<input type="file" id="fE" accept="image/*" capture="environment" onchange="hreg('E',this)">
+<input type="file" id="dfK" accept="image/*" capture="environment" onchange="hdet('K',this)">
+<input type="file" id="dfE" accept="image/*" capture="environment" onchange="hdet('E',this)">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbzN3xMjvgRTkwWcUfq931EBz2-asT1_mWWBJ-j290EzWKQXnzPEjQVOyPfdt-STMgg/exec';
+const MAX_PH = 200 * 1024; // 200KB（CALS 1280x960相当）
+const THUMB_SIZE = 200; // サムネイル幅px
+const IDB_NAME = 'tenkino_v13';
+const IDB_VER = 1;
+
+let data = [], detPh = {K:null,E:null}, regPh = {K:null,E:null};
+let curId = null, curFilter = 'all';
+let lastTenshu = '', lastKushu = '', lastTenName = '';
+let currentGenba = '';
+let isOnline = navigator.onLine;
+let isUploading = false;
+let idb = null;
+
+// ── IndexedDB ──
+function openIDB() {
+  return new Promise((res,rej)=>{
+    const req = indexedDB.open(IDB_NAME, IDB_VER);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('pending')) db.createObjectStore('pending',{keyPath:'localId'});
+      if (!db.objectStoreNames.contains('thumbs'))  db.createObjectStore('thumbs', {keyPath:'key'});
+    };
+    req.onsuccess = e => res(e.target.result);
+    req.onerror = ()=>rej(req.error);
+  });
+}
+function idbPut(store,val){ return new Promise((res,rej)=>{ const tx=idb.transaction(store,'readwrite'); tx.objectStore(store).put(val).onsuccess=()=>res(); }); }
+function idbGetAll(store){ return new Promise((res,rej)=>{ const tx=idb.transaction(store,'readonly'); const r=tx.objectStore(store).getAll(); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+function idbGet(store,key){ return new Promise((res,rej)=>{ const tx=idb.transaction(store,'readonly'); const r=tx.objectStore(store).get(key); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+function idbDelete(store,key){ return new Promise((res,rej)=>{ const tx=idb.transaction(store,'readwrite'); tx.objectStore(store).delete(key).onsuccess=()=>res(); }); }
+
+// ── 画像圧縮 ──
+function compressImage(dataUrl, maxBytes) {
+  return new Promise(resolve=>{
+    const img = new Image();
+    img.onload=()=>{
+      let w=img.width, h=img.height;
+      if(w>1280){h=Math.round(h*1280/w);w=1280;} // CALS規格 1280x960
+      const cvs=document.createElement('canvas'); cvs.width=w; cvs.height=h;
+      cvs.getContext('2d').drawImage(img,0,0,w,h);
+      const tryQ=q=>{
+        const out=cvs.toDataURL('image/jpeg',q);
+        if(Math.round((out.length-'data:image/jpeg;base64,'.length)*0.75)<=maxBytes||q<=0.2) resolve(out);
+        else tryQ(q-0.1);
+      };
+      tryQ(0.85);
+    };
+    img.src=dataUrl;
+  });
+}
+
+// ── サムネイル生成 ──
+function makeThumbnail(dataUrl, size=THUMB_SIZE) {
+  return new Promise(resolve=>{
+    const img = new Image();
+    img.onload=()=>{
+      const r=img.height/img.width;
+      const cvs=document.createElement('canvas'); cvs.width=size; cvs.height=Math.round(size*r);
+      cvs.getContext('2d').drawImage(img,0,0,cvs.width,cvs.height);
+      resolve(cvs.toDataURL('image/jpeg',0.7));
+    };
+    img.src=dataUrl;
+  });
+}
+
+// ── GPS取得 ──
+function getGPS() {
+  return new Promise(resolve=>{
+    if (!navigator.geolocation) { resolve(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      p=>resolve({lat:p.coords.latitude, lng:p.coords.longitude, acc:p.coords.accuracy}),
+      ()=>resolve(null),
+      {timeout:5000, maximumAge:30000}
+    );
+  });
+}
+
+
+// 全角->半角変換（ASC関数相当）
+function toHalfWidth(str) {
+  if (!str) return str;
+  return str.replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+            .replace(/　/g, ' ');
+}
+
+// ── 点名インクリメント ──
+function incrementTenName(name) {
+  if (!name) return '';
+  const m = name.match(/^(.*?)(\d+)([^\d]*)$/);
+  if (!m) return name;
+  return m[1] + (parseInt(m[2])+1) + m[3];
+}
+
+// ── 現場 ──
+function openGenbaModal() {
+  document.getElementById('genbaInput').value = currentGenba;
+  document.getElementById('genbaModal').classList.add('open');
+  loadGenbaList();
+}
+function closeGenbaModal() { document.getElementById('genbaModal').classList.remove('open'); }
+async function loadGenbaList() {
+  if (!isOnline) return;
+  try {
+    const res = await gasGet({action:'listGenba'});
+    const sel = document.getElementById('genbaSelect');
+    sel.innerHTML='';
+    (res.genbaList||['（現場なし）']).forEach(g=>{
+      const o=document.createElement('option'); o.value=g==='（現場なし）'?'':g; o.textContent=g; sel.appendChild(o);
+    });
+    sel.value=currentGenba;
+    sel.onchange=()=>{ document.getElementById('genbaInput').value=sel.value; };
+  } catch(e){}
+}
+function applyGenba() {
+  currentGenba = document.getElementById('genbaInput').value.trim();
+  updateGenbaDisplay();
+  closeGenbaModal();
+  loadData().then(()=>renderList());
+  toast(currentGenba?'現場「'+currentGenba+'」に切り替えました':'現場なしに切り替えました');
+}
+function updateGenbaDisplay() {
+  const l = currentGenba||'（現場なし）';
+  document.getElementById('genbaDisplay').textContent=l;
+  document.getElementById('genbaDisplay2').textContent=l;
+}
+
+// ── オンライン状態 ──
+function updateOnlineStatus() {
+  isOnline = navigator.onLine;
+  ['offlineBanner','offlineBanner2'].forEach(id=>document.getElementById(id).classList.toggle('hide',isOnline));
+  if (isOnline) { setDot('ok'); setTimeout(()=>uploadPending(),1000); }
+  else setDot('offline');
+  updatePendingCount();
+}
+window.addEventListener('online', updateOnlineStatus);
+window.addEventListener('offline', updateOnlineStatus);
+
+async function updatePendingCount() {
+  const p = await idbGetAll('pending');
+  const n = p.length;
+  document.getElementById('pendingBadge').textContent=n;
+  document.getElementById('pendingCount2').textContent=n;
+  document.getElementById('pendingCountSettings').textContent=n;
+  return n;
+}
+
+// ── API ──
+async function gasGet(params={}) {
+  const url=GAS_URL+'?'+new URLSearchParams({...params,_t:Date.now()});
+  return (await fetch(url)).json();
+}
+async function gasPost(body) {
+  return (await fetch(GAS_URL,{method:'POST',body:JSON.stringify(body)})).json();
+}
+function setDot(s){ ['sd1','sd2'].forEach(id=>{ const e=document.getElementById(id); if(e) e.className='sync-dot '+s; }); }
+
+// ── データ読み込み ──
+async function loadData() {
+  setDot('syncing');
+  try {
+    const pending = await idbGetAll('pending');
+    if (isOnline) {
+      const res = await gasGet({action:'list',genba:currentGenba});
+      if (res.error) throw new Error(res.error);
+      const pendingRecs = pending.map(p=>({...p.record,_pending:true}));
+      data = [...pendingRecs, ...(res.records||[])];
+      setDot('ok');
+      document.getElementById('connRow').innerHTML='<div class="sync-dot ok" style="position:static;flex-shrink:0"></div><span>接続中 — Googleドライブ同期有効</span>';
+    } else {
+      data = pending.map(p=>({...p.record,_pending:true}));
+      setDot('offline');
+    }
+    document.getElementById('counter').textContent=data.length;
+  } catch(e) {
+    setDot('err');
+    document.getElementById('connRow').innerHTML='<div class="sync-dot err" style="position:static;flex-shrink:0"></div><span>接続失敗: '+e.message+'</span>';
+    const pending = await idbGetAll('pending');
+    data = pending.map(p=>({...p.record,_pending:true}));
+    document.getElementById('counter').textContent=data.length;
+  }
+  document.getElementById('loadingOverlay').classList.add('hide');
+  await updatePendingCount();
+}
+
+// ── 未送信アップロード ──
+async function uploadPending() {
+  if (!isOnline||isUploading) return;
+  const pending = await idbGetAll('pending');
+  if (!pending.length) return;
+  isUploading=true; setDot('syncing');
+  toast('未送信データを送信中... ('+pending.length+'件)');
+  let ok=0;
+  for (const item of pending) {
+    try {
+      const res = await gasPost({
+        action:'add', genba:item.record.genba||'',
+        tenName:item.record.tenName, tenshu:item.record.tenshu||'',
+        kushu:item.record.kushu||'', order:'KE',
+        timestamp:item.record.timestamp,
+        kData:item.record.kData||null, eData:item.record.eData||null,
+        lat:item.record.lat||null, lng:item.record.lng||null
+      });
+      if (res.error) throw new Error(res.error);
+      await idbDelete('pending',item.localId);
+      ok++;
+    } catch(e){ break; }
+  }
+  isUploading=false;
+  if (ok>0) { setDot('ok'); toast(ok+'件のアップロード完了'); await loadData(); renderList(); }
+  else setDot('err');
+  await updatePendingCount();
+}
+
+// ── 画面遷移 ──
+function go(t) {
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  const m={reg:'scReg',list:'scList',settings:'scSettings',help:'scHelp'};
+  if (t==='list') loadData().then(()=>renderList());
+  document.getElementById(m[t]||'scReg').classList.add('active');
+  window.scrollTo(0,0);
+}
+function showScreen(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); window.scrollTo(0,0); }
+
+// ── 写真読み込み ──
+function hreg(t,inp) {
+  const f=inp.files[0]; if(!f)return;
+  const r=new FileReader();
+  r.onload=async e=>{
+    const c=await compressImage(e.target.result,MAX_PH);
+    regPh[t]=c;
+    document.getElementById('p'+t).src=c;
+    document.getElementById('s'+t).classList.add('hp');
+  };
+  r.readAsDataURL(f); inp.value='';
+}
+function hdet(t,inp) {
+  const f=inp.files[0]; if(!f)return;
+  const r=new FileReader();
+  r.onload=async e=>{
+    const c=await compressImage(e.target.result,MAX_PH);
+    detPh[t]=c;
+    renderDetPhoto(t,c,true);
+  };
+  r.readAsDataURL(f); inp.value='';
+}
+
+// ── 登録 ──
+async function register() {
+  const name=toHalfWidth(document.getElementById('rName').value.trim());
+  const tenshu=document.getElementById('rTenshu').value;
+  const kushu=document.getElementById('rKushu').value;
+  if (!name){toast('点名を入力してください');return;}
+  if (!regPh.K){toast('近景写真を撮影してください');return;}
+  if (!regPh.E){toast('遠景写真を撮影してください');return;}
+  const btn=document.getElementById('btnReg');
+  btn.disabled=true; btn.textContent='保存中...';
+
+  const gps = await getGPS();
+  const now=new Date();
+  const ts=now.toLocaleDateString('ja-JP')+' '+now.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
+  const localId='local_'+Date.now();
+  const eThumb = await makeThumbnail(regPh.E);
+  const record={
+    id:localId, localId, genba:currentGenba,
+    tenName:name, tenshu, kushu, order:'KE',
+    timestamp:ts, downloaded:false,
+    kData:regPh.K, eData:regPh.E,
+    kUrl:regPh.K, eUrl:regPh.E,
+    lat:gps?.lat||null, lng:gps?.lng||null,
+    _pending:true
+  };
+
+  // ローカル保存
+  await idbPut('pending',{localId,record});
+  // サムネイルをキャッシュ
+  await idbPut('thumbs',{key:'e_'+localId, thumb:eThumb});
+  data.unshift(record);
+  document.getElementById('counter').textContent=data.length;
+  lastTenshu=tenshu; lastKushu=kushu; lastTenName=name;
+  clearReg();
+  await updatePendingCount();
+  toast('「'+name+'」を保存しました（'+(isOnline?'送信中...':'オフライン保存')+'）');
+
+  if (isOnline) {
+    try {
+      setDot('syncing'); showProgress('Googleドライブに送信中...',50);
+      // 写真を分割送信（サイズ制限対策）
+      showProgress('近景をアップロード中...',30);
+      const resK=await gasPost({
+        action:'uploadPhoto', genba:currentGenba,
+        tenName:name, photoType:'K', photoData:regPh.K
+      });
+      if(resK.error) throw new Error(resK.error);
+      showProgress('遠景をアップロード中...',60);
+      const resE=await gasPost({
+        action:'uploadPhoto', genba:currentGenba,
+        tenName:name, photoType:'E', photoData:regPh.E
+      });
+      if(resE.error) throw new Error(resE.error);
+      showProgress('記録を保存中...',80);
+      const res=await gasPost({
+        action:'add', genba:currentGenba,
+        tenName:name, tenshu, kushu, order:'KE', timestamp:ts,
+        kFileId:resK.fileId, eFileId:resE.fileId,
+        lat:gps?.lat||null, lng:gps?.lng||null
+      });
+      if (res.error) throw new Error(res.error);
+      showProgress('完了！',100); setTimeout(hideProgress,600);
+      await idbDelete('pending',localId);
+      // サムネイルキーを正式IDに変更
+      if (res.eFileId) {
+        await idbPut('thumbs',{key:'e_'+res.id, thumb:eThumb});
+        await idbDelete('thumbs','e_'+localId);
+      }
+      const idx=data.findIndex(d=>d.id===localId);
+      if (idx>=0) data[idx]={
+        id:res.id, genba:currentGenba, tenName:name, tenshu, kushu, order:'KE',
+        timestamp:ts, downloaded:false,
+        kFileId:res.kFileId, eFileId:res.eFileId,
+        kUrl:res.kFileId?`https://lh3.googleusercontent.com/d/${res.kFileId}`:null,
+        eUrl:res.eFileId?`https://lh3.googleusercontent.com/d/${res.eFileId}`:null,
+        lat:gps?.lat||null, lng:gps?.lng||null, _pending:false
+      };
+      setDot('ok'); await updatePendingCount();
+      toast('「'+name+'」をドライブに保存しました（計'+data.length+'点）');
+    } catch(e) {
+      hideProgress(); setDot('offline');
+      toast('送信失敗 — ローカルに保存済み。後で自動送信されます');
+    }
+  }
+  btn.disabled=false; btn.textContent='登録';
+}
+
+function clearReg() {
+  document.getElementById('rName').value=incrementTenName(lastTenName);
+  document.getElementById('rTenshu').value=lastTenshu;
+  document.getElementById('rKushu').value=lastKushu;
+  regPh={K:null,E:null};
+  ['K','E'].forEach(t=>{ document.getElementById('p'+t).src=''; document.getElementById('s'+t).classList.remove('hp'); });
+}
+function showProgress(msg,pct){ document.getElementById('uploadProgress').style.display='block'; document.getElementById('uploadMsg').textContent=msg; document.getElementById('progressBar').style.width=pct+'%'; }
+function hideProgress(){ document.getElementById('uploadProgress').style.display='none'; document.getElementById('progressBar').style.width='0%'; }
+
+// ── フィルタ＆一覧 ──
+function setFilter(f,el){ curFilter=f; document.querySelectorAll('.fb').forEach(b=>b.classList.remove('active')); el.classList.add('active'); renderList(); }
+function dispVal(v){ return v&&v.trim()?v:'-- なし --'; }
+
+async function renderList() {
+  const body=document.getElementById('listBody');
+  let rows;
+  if (curFilter==='undl') rows=data.filter(r=>!r.downloaded&&!r._pending);
+  else if (curFilter==='done') rows=data.filter(r=>r.downloaded);
+  else if (curFilter==='pending') rows=data.filter(r=>r._pending);
+  else if (curFilter==='noph') rows=data.filter(r=>!r.kUrl&&!r.eUrl&&!r._pending);
+  else rows=data;
+  const undl=data.filter(r=>!r.downloaded&&!r._pending).length;
+  const done=data.filter(r=>r.downloaded).length;
+  document.getElementById('btnDLAll').disabled=undl===0;
+  document.getElementById('btnDelDone').disabled=done===0;
+  document.getElementById('btnDelDone').textContent=done>0?'DL済を全削除（'+done+'件）':'DL済を全削除';
+  if (!rows.length){body.innerHTML='<div class="empty-state">該当するデータがありません</div>';return;}
+
+  // まずHTMLを生成（サムネイルはプレースホルダー）
+  body.innerHTML=rows.map(r=>`
+    <div class="li${r.downloaded?' dl-done':''}${r._pending?' offline-pending':''}" onclick="showDetailById('${r.id}')">
+      <div class="li-thumb" id="thumb_${r.id}">
+        <div style="width:80px;height:64px;display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--text3)">📷</div>
+      </div>
+      <div class="li-info">
+        <div class="li-name">${r.tenName}</div>
+        <div class="li-meta">${dispVal(r.tenshu)} / ${dispVal(r.kushu)} — ${r.timestamp}</div>
+        <div class="li-badges">
+          ${r.downloaded?'<span class="dl-badge">✓ DL済</span>':''}
+          ${r._pending?'<span class="pending-badge">📴 未送信</span>':''}
+          ${!r.kUrl&&!r.eUrl&&!r._pending?'<span class="noph-badge">写真削除済</span>':''}
+        </div>
+      </div>
+      <span class="li-arrow">›</span>
+    </div>`).join('');
+
+  // サムネイルを非同期で読み込み
+  for (const r of rows) {
+    loadThumb(r);
+  }
+}
+
 async function loadThumb(r) {
   const wrap = document.getElementById('thumb_'+r.id);
   if (!wrap) return;
