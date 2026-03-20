@@ -552,6 +552,14 @@ function getGPS() {
   });
 }
 
+
+// 全角->半角変換（ASC関数相当）
+function toHalfWidth(str) {
+  if (!str) return str;
+  return str.replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+            .replace(/　/g, ' ');
+}
+
 // ── 点名インクリメント ──
 function incrementTenName(name) {
   if (!name) return '';
@@ -715,7 +723,7 @@ function hdet(t,inp) {
 
 // ── 登録 ──
 async function register() {
-  const name=document.getElementById('rName').value.trim();
+  const name=toHalfWidth(document.getElementById('rName').value.trim());
   const tenshu=document.getElementById('rTenshu').value;
   const kushu=document.getElementById('rKushu').value;
   if (!name){toast('点名を入力してください');return;}
@@ -753,10 +761,24 @@ async function register() {
   if (isOnline) {
     try {
       setDot('syncing'); showProgress('Googleドライブに送信中...',50);
+      // 写真を分割送信（サイズ制限対策）
+      showProgress('近景をアップロード中...',30);
+      const resK=await gasPost({
+        action:'uploadPhoto', genba:currentGenba,
+        tenName:name, photoType:'K', photoData:regPh.K
+      });
+      if(resK.error) throw new Error(resK.error);
+      showProgress('遠景をアップロード中...',60);
+      const resE=await gasPost({
+        action:'uploadPhoto', genba:currentGenba,
+        tenName:name, photoType:'E', photoData:regPh.E
+      });
+      if(resE.error) throw new Error(resE.error);
+      showProgress('記録を保存中...',80);
       const res=await gasPost({
         action:'add', genba:currentGenba,
         tenName:name, tenshu, kushu, order:'KE', timestamp:ts,
-        kData:regPh.K, eData:regPh.E,
+        kFileId:resK.fileId, eFileId:resE.fileId,
         lat:gps?.lat||null, lng:gps?.lng||null
       });
       if (res.error) throw new Error(res.error);
@@ -930,7 +952,7 @@ function renderMap(lat, lng) {
 }
 
 async function saveDetail() {
-  const name=document.getElementById('detName').value.trim();
+  const name=toHalfWidth(document.getElementById('detName').value.trim());
   const tenshu=document.getElementById('detTenshu').value;
   const kushu=document.getElementById('detKushu').value;
   if (!name){toast('点名を入力してください');return;}
@@ -947,8 +969,14 @@ async function saveDetail() {
       setDot('offline'); toast('ローカルデータを更新しました');
     } else {
       const upd={action:'update',id:curId,genba:currentGenba,tenName:name,tenshu,kushu};
-      if (detPh.K) upd.kData=detPh.K;
-      if (detPh.E) upd.eData=detPh.E;
+      if (detPh.K) {
+        const rk=await gasPost({action:'uploadPhoto',genba:currentGenba,tenName:name,photoType:'K',photoData:detPh.K});
+        if(!rk.error) upd.kFileId=rk.fileId;
+      }
+      if (detPh.E) {
+        const re=await gasPost({action:'uploadPhoto',genba:currentGenba,tenName:name,photoType:'E',photoData:detPh.E});
+        if(!re.error) upd.eFileId=re.fileId;
+      }
       const res=await gasPost(upd);
       if (res.error) throw new Error(res.error);
       if (r){r.tenName=name;r.tenshu=tenshu;r.kushu=kushu;}
