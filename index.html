@@ -475,7 +475,7 @@ input[type=file]{display:none}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbzN3xMjvgRTkwWcUfq931EBz2-asT1_mWWBJ-j290EzWKQXnzPEjQVOyPfdt-STMgg/exec';
-const MAX_PH = 1024 * 1024;
+const MAX_PH = 200 * 1024; // 200KB（CALS 1280x960相当）
 const THUMB_SIZE = 200; // サムネイル幅px
 const IDB_NAME = 'tenkino_v13';
 const IDB_VER = 1;
@@ -512,7 +512,7 @@ function compressImage(dataUrl, maxBytes) {
     const img = new Image();
     img.onload=()=>{
       let w=img.width, h=img.height;
-      if(w>1920){h=Math.round(h*1920/w);w=1920;}
+      if(w>1280){h=Math.round(h*1280/w);w=1280;} // CALS規格 1280x960
       const cvs=document.createElement('canvas'); cvs.width=w; cvs.height=h;
       cvs.getContext('2d').drawImage(img,0,0,w,h);
       const tryQ=q=>{
